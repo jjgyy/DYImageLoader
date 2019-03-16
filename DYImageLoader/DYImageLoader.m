@@ -5,8 +5,8 @@
 //  Created by Apple on 2019/3/15.
 //  Copyright © 2019 Young. All rights reserved.
 //
-#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 20
-#define DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS 100
+#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 50
+#define DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS 50
 
 #import "DYImageLoader.h"
 
