@@ -62,14 +62,15 @@ static DYImageLoader* _sharedImageLoader;
     return self;
 }
 
-- (void)loadImageForUIImageView:(UIImageView*)uiImageView url:(NSString*)url completion:(void(^)(void))completion {
+- (void)loadImageWithURL:(NSString *)url completion:(void (^)(UIImage * _Nullable))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         //try to get image cache from dict
         UIImage* uiImageInDict = (UIImage*)[self.dictOfImages objectForKey:url];
         if (uiImageInDict) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                uiImageView.image = uiImageInDict;
+                completion(uiImageInDict);
             });
+            return;
         }
         else {
             //begin to request from url
@@ -88,13 +89,12 @@ static DYImageLoader* _sharedImageLoader;
                     dispatch_async(queue, ^{
                         NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
                         UIImage* uiImageInResponse = [UIImage imageWithData:data];
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            uiImageView.image = uiImageInResponse;
-                        });
                         [self.dictOfImages setObject:uiImageInResponse forKey:url];
                         [self.arrayOfSequencedURLs addObject:url];
-                        completion();
-                        [self checkImageCacheOverflow];
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            completion(uiImageInResponse);
+                        });
+                        [self avoidImageCacheOverflow];
                     });
                     //signal the semaphore, then return
                     dispatch_semaphore_signal(self.semaphoreOfDictOfRequestingQueues);
@@ -107,9 +107,8 @@ static DYImageLoader* _sharedImageLoader;
                 UIImage* uiImageInDict = (UIImage*)[self.dictOfImages objectForKey:url];
                 if (uiImageInDict) {
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        uiImageView.image = uiImageInDict;
+                        completion(uiImageInDict);
                     });
-                    completion();
                 }
             });
             
@@ -117,15 +116,39 @@ static DYImageLoader* _sharedImageLoader;
     });
 }
 
-- (void)checkImageCacheOverflow {
-    if ([self.lockOfCheckImageCacheOverflow tryLock]) {
-        while (self.arrayOfSequencedURLs.count > self.capacityOfImageCache) {
-            [self.dictOfImages removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
-            [self.dictOfRequestingQueues removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
-            [self.arrayOfSequencedURLs removeObjectAtIndex:0];
+- (void)loadImageForUIImageView:(UIImageView *)uiImageView withURL:(NSString *)url completion:(void (^)(void))completion {
+    [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
+        [uiImageView setImage:image];
+        completion();
+    }];
+}
+
+- (void)loadImageForUIImageViews:(NSArray *)uiImageViews withURL:(NSString *)url completion:(void (^)(void))completion {
+    [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            dispatch_queue_t queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_CONCURRENT);
+            //dispatch_apply run very fast :)
+            dispatch_apply(uiImageViews.count, queue, ^(size_t index) {
+                UIImageView* uiImageView = (UIImageView*)[uiImageViews objectAtIndex:index];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [uiImageView setImage:image];
+                });
+            });
+        });
+    }];
+}
+
+- (void)avoidImageCacheOverflow {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        if ([self.lockOfCheckImageCacheOverflow tryLock]) {
+            while (self.arrayOfSequencedURLs.count > self.capacityOfImageCache) {
+                [self.dictOfImages removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
+                [self.dictOfRequestingQueues removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
+                [self.arrayOfSequencedURLs removeObjectAtIndex:0];
+            }
+            [self.lockOfCheckImageCacheOverflow unlock];
         }
-        [self.lockOfCheckImageCacheOverflow unlock];
-    }
+    });
 }
 
 @end
