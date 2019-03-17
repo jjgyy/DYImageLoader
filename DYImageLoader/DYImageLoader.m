@@ -24,9 +24,10 @@
 static DYImageLoader* _sharedImageLoader;
 
 + (DYImageLoader*)sharedImageLoader {
-    if (!_sharedImageLoader) {
-        _sharedImageLoader = [DYImageLoader new];
-    }
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        _sharedImageLoader = [[DYImageLoader alloc] init];
+    });
     return _sharedImageLoader;
 }
 
@@ -44,7 +45,7 @@ static DYImageLoader* _sharedImageLoader;
         self.dictOfImages = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE + 10];
         self.arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE + 10];
         self.dictOfRequestingQueues = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS];
-        self.lockOfCheckImageCacheOverflow = [NSLock new];
+        self.lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
         self.semaphoreOfDictOfRequestingQueues = dispatch_semaphore_create(1);
     }
     return self;
@@ -56,7 +57,7 @@ static DYImageLoader* _sharedImageLoader;
         self.dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self.arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
         self.dictOfRequestingQueues = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS];
-        self.lockOfCheckImageCacheOverflow = [NSLock new];
+        self.lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
         self.semaphoreOfDictOfRequestingQueues = dispatch_semaphore_create(1);
     }
     return self;
@@ -123,7 +124,7 @@ static DYImageLoader* _sharedImageLoader;
     }];
 }
 
-- (void)loadImageForUIImageViews:(NSArray *)uiImageViews withURL:(NSString *)url completion:(void (^)(void))completion {
+- (void)loadImageForUIImageViews:(NSArray *)uiImageViews withURL:(NSString *)url {
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             dispatch_queue_t queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_CONCURRENT);

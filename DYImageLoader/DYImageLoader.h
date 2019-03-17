@@ -24,7 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)loadImageForUIImageView:(UIImageView*)uiImageView withURL:(NSString*)url completion:(void (^)(void))completion;
 
-- (void)loadImageForUIImageViews:(NSArray*)uiImageViews withURL:(NSString*)url completion:(void (^)(void))completion;
+- (void)loadImageForUIImageViews:(NSArray*)uiImageViews withURL:(NSString*)url;
 
 @end
 

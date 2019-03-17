@@ -41,7 +41,7 @@ DYImageLoader * imageLoader = DYImageLoader.sharedImageLoader;
 
 3. loadImageForUIImageViews
 ```
-- (void)loadImageForUIImageViews:(NSArray*)uiImageViews withURL:(NSString*)url completion:(void (^)(void))completion;
+- (void)loadImageForUIImageViews:(NSArray*)uiImageViews withURL:(NSString*)url;
 ```
 >调用loadImageWithURL，之后使用dispatch_apply进行并发迭代，为数组中所有UIImageView设置image
 
