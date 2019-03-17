@@ -27,7 +27,7 @@ DYImageLoader * imageLoader = DYImageLoader.sharedImageLoader;
 ```
 - (void)loadImageWithURL:(NSString*)url completion:(void (^)(UIImage* _Nullable image))completion;
 ```
->异步加载图片，优先从图片缓存中读取，如果没有则发起请求。多个线程同时发起针对同一URL的请求将只保留一个。
+>异步加载图片，优先从图片缓存中读取，如果没有则发起请求。多个线程同时发起针对同一URL的请求将只保留一个
 
 ---
 
