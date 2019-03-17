@@ -20,7 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithCacheCapacity:(NSUInteger)capacity;
 
-- (void)loadImageForUIImageView:(UIImageView*)uiImageView url:(NSString*)url failure:(void(^)(void))failure success:(void(^)(void))success;
+- (void)loadImageForUIImageView:(UIImageView*)uiImageView url:(NSString*)url completion:(void(^)(void))completion;
 
 @end
 

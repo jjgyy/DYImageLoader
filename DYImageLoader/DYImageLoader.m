@@ -62,7 +62,7 @@ static DYImageLoader* _sharedImageLoader;
     return self;
 }
 
-- (void)loadImageForUIImageView:(UIImageView*)uiImageView url:(NSString*)url failure:(void(^)(void))failure success:(void(^)(void))success {
+- (void)loadImageForUIImageView:(UIImageView*)uiImageView url:(NSString*)url completion:(void(^)(void))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         //try to get image cache from dict
         UIImage* uiImageInDict = (UIImage*)[self.dictOfImages objectForKey:url];
@@ -88,14 +88,13 @@ static DYImageLoader* _sharedImageLoader;
                     dispatch_async(queue, ^{
                         NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
                         UIImage* uiImageInResponse = [UIImage imageWithData:data];
-                        if (!uiImageInResponse) {failure();}
                         dispatch_async(dispatch_get_main_queue(), ^{
                             uiImageView.image = uiImageInResponse;
                         });
                         [self.dictOfImages setObject:uiImageInResponse forKey:url];
                         [self.arrayOfSequencedURLs addObject:url];
                         [self checkImageCacheOverflow];
-                        success();
+                        completion();
                     });
                     //signal the semaphore, then return
                     dispatch_semaphore_signal(self.semaphoreOfDictOfRequestingQueues);
@@ -110,10 +109,7 @@ static DYImageLoader* _sharedImageLoader;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         uiImageView.image = uiImageInDict;
                     });
-                    success();
-                }
-                else {
-                    failure();
+                    completion();
                 }
             });
             
