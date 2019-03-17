@@ -83,7 +83,7 @@ static DYImageLoader* _sharedImageLoader;
                 queue = (dispatch_queue_t)[self.dictOfRequestingQueues objectForKey:url];
                 if (!queue) {
                     //create a new queue, then create the first block in the queue
-                    queue = dispatch_queue_create("david", DISPATCH_QUEUE_SERIAL);
+                    queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_SERIAL);
                     [self.dictOfRequestingQueues setObject:queue forKey:url];
                     dispatch_async(queue, ^{
                         NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
@@ -93,8 +93,8 @@ static DYImageLoader* _sharedImageLoader;
                         });
                         [self.dictOfImages setObject:uiImageInResponse forKey:url];
                         [self.arrayOfSequencedURLs addObject:url];
-                        [self checkImageCacheOverflow];
                         completion();
+                        [self checkImageCacheOverflow];
                     });
                     //signal the semaphore, then return
                     dispatch_semaphore_signal(self.semaphoreOfDictOfRequestingQueues);

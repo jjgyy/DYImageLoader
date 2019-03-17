@@ -21,3 +21,6 @@ by David Young
 [DYImageLoader.sharedImageLoader loadImageForUIImageView:self.uiImageView url:url failure:^{} success:^{}];
 ```
 
+## Structure
+![avatar](http://assets.processon.com/chart_image/5c8dbde7e4b0afc744146e15.png)
+
