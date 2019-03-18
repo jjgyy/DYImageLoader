@@ -48,7 +48,7 @@ static int _requestCount = 0;
 
 - (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number {
     if (self = [super init]) {
-        self->_capacityOfImageCache = 10;
+        self->_capacityOfImageCache = capacity;
         self->_dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self->_arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
         self->_dictOfQueueIndexToJoin = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
