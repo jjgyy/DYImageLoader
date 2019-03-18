@@ -15,7 +15,8 @@
 @property(nonatomic, assign) NSUInteger numberOfConcurrentQueues;
 @property(nonatomic, strong) NSMutableDictionary* dictOfImages;
 @property(nonatomic, strong) NSMutableArray* arrayOfSequencedURLs;
-@property(nonatomic, strong) NSArray* arrayOfSerialQueues;
+@property(nonatomic, strong) NSMutableDictionary* dictOfQueueIndexToJoin;
+@property(nonatomic, strong) NSArray* arrayOfSerialQueuesPool;
 @property(nonatomic, strong) NSLock* lockOfCheckImageCacheOverflow;
 @property(nonatomic, strong) dispatch_semaphore_t semaphoreOfSequencedURLsArray;
 @end
@@ -47,9 +48,10 @@ static int _requestCount = 0;
 
 - (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number {
     if (self = [super init]) {
-        self->_capacityOfImageCache = capacity;
+        self->_capacityOfImageCache = 10;
         self->_dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self->_arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
+        self->_dictOfQueueIndexToJoin = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self->_lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
         self->_semaphoreOfSequencedURLsArray = dispatch_semaphore_create(1);
         self->_numberOfConcurrentQueues = number;
@@ -57,7 +59,7 @@ static int _requestCount = 0;
         for (int i=0; i<number; i++) {
             [arrayOfSerialQueues addObject:dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_SERIAL)];
         }
-        self->_arrayOfSerialQueues = arrayOfSerialQueues;
+        self->_arrayOfSerialQueuesPool = arrayOfSerialQueues;
     }
     return self;
 }
@@ -76,9 +78,12 @@ static int _requestCount = 0;
             //begin to request from a new url
             dispatch_semaphore_wait(self->_semaphoreOfSequencedURLsArray, DISPATCH_TIME_FOREVER);
             if (![self->_arrayOfSequencedURLs containsObject:url]) {
+                NSUInteger indexOfURLInArray = self->_arrayOfSequencedURLs.count;
+                NSUInteger indexOfQueueToJoin = indexOfURLInArray % self->_numberOfConcurrentQueues;
                 [self->_arrayOfSequencedURLs addObject:url];
+                [self->_dictOfQueueIndexToJoin setObject:[NSNumber numberWithUnsignedInteger:indexOfQueueToJoin] forKey:url];
                 //thread which is the first one try to request a new url, begin requesting
-                dispatch_async(self->_arrayOfSerialQueues[[url hash] % self->_numberOfConcurrentQueues], ^{
+                dispatch_async(self->_arrayOfSerialQueuesPool[indexOfQueueToJoin], ^{
                     NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
                     _requestCount ++;
                     UIImage* uiImageInResponse = [UIImage imageWithData:data];
@@ -96,7 +101,8 @@ static int _requestCount = 0;
             //thread which isn't the first one try to request a new url, signal the semaphore without doing anything
             dispatch_semaphore_signal(self->_semaphoreOfSequencedURLsArray);
             //join the serial queue, wait to get image data from dict
-            dispatch_async(self->_arrayOfSerialQueues[[url hash] % self->_numberOfConcurrentQueues], ^{
+            NSUInteger indexOfQueueToJoin = [(NSNumber*)self->_dictOfQueueIndexToJoin[url] integerValue];
+            dispatch_async(self->_arrayOfSerialQueuesPool[indexOfQueueToJoin], ^{
                 UIImage* uiImageInDict = (UIImage*)self->_dictOfImages[url];
                 if (uiImageInDict) {
                     dispatch_async(dispatch_get_main_queue(), ^{
@@ -123,7 +129,7 @@ static int _requestCount = 0;
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             __strong NSArray* strongUIImageViews = weakUIImageViews;
-            dispatch_queue_t queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_CONCURRENT);
+            dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
             //dispatch_apply run very fast :)
             dispatch_apply(uiImageViews.count, queue, ^(size_t index) {
                 UIImageView* uiImageView = (UIImageView*)strongUIImageViews[index];
@@ -139,8 +145,12 @@ static int _requestCount = 0;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         if ([self->_lockOfCheckImageCacheOverflow tryLock]) {
             while (self->_arrayOfSequencedURLs.count > self->_capacityOfImageCache) {
-                [self->_dictOfImages removeObjectForKey:(NSString*)self->_arrayOfSequencedURLs[0]];
-                [self->_arrayOfSequencedURLs removeObjectAtIndex:0];
+                NSString* removedURL = (NSString*)self->_arrayOfSequencedURLs[0];
+                if (self->_dictOfImages[removedURL] && self->_dictOfQueueIndexToJoin[removedURL]) {
+                    [self->_dictOfImages removeObjectForKey:removedURL];
+                    [self->_dictOfQueueIndexToJoin removeObjectForKey:removedURL];
+                    [self->_arrayOfSequencedURLs removeObjectAtIndex:0];
+                }
             }
             [self->_lockOfCheckImageCacheOverflow unlock];
         }
@@ -154,6 +164,7 @@ static int _requestCount = 0;
             @{
               @"requestCount":[NSNumber numberWithInt:_requestCount],
               @"arrayOfSequencedURLs":_arrayOfSequencedURLs,
+              @"dictOfQueueIndexToJoin":_dictOfQueueIndexToJoin,
               @"dictOfImages":_dictOfImages
               }];
 }
