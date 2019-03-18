@@ -12,7 +12,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface DYImageLoader : NSObject
-@property(class, atomic, readonly, strong) DYImageLoader* sharedImageLoader;
+@property(class, nonatomic, readonly, strong) DYImageLoader* sharedImageLoader;
 
 + (DYImageLoader*)imageLoader;
 

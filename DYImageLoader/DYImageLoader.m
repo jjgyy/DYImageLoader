@@ -66,7 +66,7 @@ static DYImageLoader* _sharedImageLoader;
 - (void)loadImageWithURL:(NSString *)url completion:(void (^)(UIImage * _Nullable))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         //try to get image cache from dict
-        UIImage* uiImageInDict = (UIImage*)[self.dictOfImages objectForKey:url];
+        UIImage* uiImageInDict = (UIImage*)self.dictOfImages[url];
         if (uiImageInDict) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(uiImageInDict);
@@ -76,21 +76,22 @@ static DYImageLoader* _sharedImageLoader;
         else {
             //begin to request from url
             //try to get requesting queue from dict
-            dispatch_queue_t queue = (dispatch_queue_t)[self.dictOfRequestingQueues objectForKey:url];
+            dispatch_queue_t queue = (dispatch_queue_t)self.dictOfRequestingQueues[url];
             if (!queue) {
                 //begin to create new request queue
                 //guarantee that at one time there is only one thread updating the requesting-queue-dict
                 dispatch_semaphore_wait(self.semaphoreOfDictOfRequestingQueues, DISPATCH_TIME_FOREVER);
                 //thread invoked by semaphore check dict again
-                queue = (dispatch_queue_t)[self.dictOfRequestingQueues objectForKey:url];
+                queue = (dispatch_queue_t)self.dictOfRequestingQueues[url];
                 if (!queue) {
                     //create a new queue, then create the first block in the queue
                     queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_SERIAL);
-                    [self.dictOfRequestingQueues setObject:queue forKey:url];
+                    self.dictOfRequestingQueues[url] = queue;
                     dispatch_async(queue, ^{
                         NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
                         UIImage* uiImageInResponse = [UIImage imageWithData:data];
-                        [self.dictOfImages setObject:uiImageInResponse forKey:url];
+                        if (!uiImageInResponse) {return;}
+                        self.dictOfImages[url] = uiImageInResponse;
                         [self.arrayOfSequencedURLs addObject:url];
                         dispatch_async(dispatch_get_main_queue(), ^{
                             completion(uiImageInResponse);
@@ -105,7 +106,7 @@ static DYImageLoader* _sharedImageLoader;
                 dispatch_semaphore_signal(self.semaphoreOfDictOfRequestingQueues);
             }
             dispatch_async(queue, ^{
-                UIImage* uiImageInDict = (UIImage*)[self.dictOfImages objectForKey:url];
+                UIImage* uiImageInDict = (UIImage*)self.dictOfImages[url];
                 if (uiImageInDict) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         completion(uiImageInDict);
@@ -130,7 +131,7 @@ static DYImageLoader* _sharedImageLoader;
             dispatch_queue_t queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_CONCURRENT);
             //dispatch_apply run very fast :)
             dispatch_apply(uiImageViews.count, queue, ^(size_t index) {
-                UIImageView* uiImageView = (UIImageView*)[uiImageViews objectAtIndex:index];
+                UIImageView* uiImageView = (UIImageView*)uiImageViews[index];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [uiImageView setImage:image];
                 });
@@ -143,8 +144,8 @@ static DYImageLoader* _sharedImageLoader;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         if ([self.lockOfCheckImageCacheOverflow tryLock]) {
             while (self.arrayOfSequencedURLs.count > self.capacityOfImageCache) {
-                [self.dictOfImages removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
-                [self.dictOfRequestingQueues removeObjectForKey:(NSString*)[self.arrayOfSequencedURLs objectAtIndex:0]];
+                [self.dictOfImages removeObjectForKey:(NSString*)self.arrayOfSequencedURLs[0]];
+                [self.dictOfRequestingQueues removeObjectForKey:(NSString*)self.arrayOfSequencedURLs[0]];
                 [self.arrayOfSequencedURLs removeObjectAtIndex:0];
             }
             [self.lockOfCheckImageCacheOverflow unlock];
