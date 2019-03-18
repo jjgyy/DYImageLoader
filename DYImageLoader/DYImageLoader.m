@@ -5,23 +5,25 @@
 //  Created by Apple on 2019/3/15.
 //  Copyright © 2019 Young. All rights reserved.
 //
-#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 50
-#define DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS 50
+#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 20
+#define DY_DEFAULT_NUMBER_OF_CONCURRENT_REQUESTS 3
 
 #import "DYImageLoader.h"
 
 @interface DYImageLoader()
 @property(nonatomic, assign) NSUInteger capacityOfImageCache;
+@property(nonatomic, assign) NSUInteger numberOfConcurrentQueues;
 @property(nonatomic, strong) NSMutableDictionary* dictOfImages;
 @property(nonatomic, strong) NSMutableArray* arrayOfSequencedURLs;
-@property(nonatomic, strong) NSMutableDictionary* dictOfRequestingQueues;
+@property(nonatomic, strong) NSArray* arrayOfSerialQueues;
 @property(nonatomic, strong) NSLock* lockOfCheckImageCacheOverflow;
-@property(nonatomic, strong) dispatch_semaphore_t semaphoreOfDictOfRequestingQueues;
+@property(nonatomic, strong) dispatch_semaphore_t semaphoreOfSequencedURLsArray;
 @end
 
 @implementation DYImageLoader
 
 static DYImageLoader* _sharedImageLoader;
+static int _requestCount = 0;
 
 + (DYImageLoader*)sharedImageLoader {
     static dispatch_once_t onceToken;
@@ -35,30 +37,27 @@ static DYImageLoader* _sharedImageLoader;
     return [[DYImageLoader alloc] init];
 }
 
-+ (DYImageLoader*)imageLoaderWithCacheCapacity:(NSUInteger)capacity {
-    return [[DYImageLoader alloc] initWithCacheCapacity:capacity];
++ (DYImageLoader*)imageLoaderWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number {
+    return [[DYImageLoader alloc] initWithCacheCapacity:capacity concurrentRequestsNumber:number];
 }
 
 - (instancetype)init {
-    if (self = [super init]) {
-        self.capacityOfImageCache = DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE;
-        self.dictOfImages = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE + 10];
-        self.arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE + 10];
-        self.dictOfRequestingQueues = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS];
-        self.lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
-        self.semaphoreOfDictOfRequestingQueues = dispatch_semaphore_create(1);
-    }
-    return self;
+    return [self initWithCacheCapacity:DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE concurrentRequestsNumber:DY_DEFAULT_NUMBER_OF_CONCURRENT_REQUESTS];
 }
 
-- (instancetype)initWithCacheCapacity:(NSUInteger)capacity {
+- (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number {
     if (self = [super init]) {
-        self.capacityOfImageCache = capacity;
-        self.dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
-        self.arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
-        self.dictOfRequestingQueues = [NSMutableDictionary dictionaryWithCapacity:DY_DEFAULT_CAPACITY_OF_REQUESTING_URLS];
-        self.lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
-        self.semaphoreOfDictOfRequestingQueues = dispatch_semaphore_create(1);
+        self->_capacityOfImageCache = capacity;
+        self->_dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
+        self->_arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
+        self->_lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
+        self->_semaphoreOfSequencedURLsArray = dispatch_semaphore_create(1);
+        self->_numberOfConcurrentQueues = number;
+        NSMutableArray* arrayOfSerialQueues = [NSMutableArray new];
+        for (int i=0; i<number; i++) {
+            [arrayOfSerialQueues addObject:dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_SERIAL)];
+        }
+        self->_arrayOfSerialQueues = arrayOfSerialQueues;
     }
     return self;
 }
@@ -74,38 +73,30 @@ static DYImageLoader* _sharedImageLoader;
             return;
         }
         else {
-            //begin to request from url
-            //try to get requesting queue from dict
-            dispatch_queue_t queue = (dispatch_queue_t)self->_dictOfRequestingQueues[url];
-            if (!queue) {
-                //begin to create new request queue
-                //guarantee that at one time there is only one thread updating the requesting-queue-dict
-                dispatch_semaphore_wait(self->_semaphoreOfDictOfRequestingQueues, DISPATCH_TIME_FOREVER);
-                //thread invoked by semaphore check dict again
-                queue = (dispatch_queue_t)self->_dictOfRequestingQueues[url];
-                if (!queue) {
-                    //create a new queue, then create the first block in the queue
-                    queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_SERIAL);
-                    self->_dictOfRequestingQueues[url] = queue;
-                    dispatch_async(queue, ^{
-                        NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
-                        UIImage* uiImageInResponse = [UIImage imageWithData:data];
-                        if (!uiImageInResponse) {return;}
-                        self->_dictOfImages[url] = uiImageInResponse;
-                        [self->_arrayOfSequencedURLs addObject:url];
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            completion(uiImageInResponse);
-                        });
-                        [self avoidImageCacheOverflow];
+            //begin to request from a new url
+            dispatch_semaphore_wait(self->_semaphoreOfSequencedURLsArray, DISPATCH_TIME_FOREVER);
+            if (![self->_arrayOfSequencedURLs containsObject:url]) {
+                [self->_arrayOfSequencedURLs addObject:url];
+                //thread which is the first one try to request a new url, begin requesting
+                dispatch_async(self->_arrayOfSerialQueues[[url hash] % self->_numberOfConcurrentQueues], ^{
+                    NSData* data = [NSData dataWithContentsOfURL:[NSURL URLWithString:url]];
+                    _requestCount ++;
+                    UIImage* uiImageInResponse = [UIImage imageWithData:data];
+                    if (!uiImageInResponse) {return;}
+                    self->_dictOfImages[url] = uiImageInResponse;
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        completion(uiImageInResponse);
                     });
-                    //signal the semaphore, then return
-                    dispatch_semaphore_signal(self->_semaphoreOfDictOfRequestingQueues);
-                    return;
-                }
-                //thread which doesn't get the semaphore first, signal the semaphore without doing anything
-                dispatch_semaphore_signal(self->_semaphoreOfDictOfRequestingQueues);
+                    [self p_avoidImageCacheOverflow];
+                });
+                //signal the semaphore, then return
+                dispatch_semaphore_signal(self->_semaphoreOfSequencedURLsArray);
+                return;
             }
-            dispatch_async(queue, ^{
+            //thread which isn't the first one try to request a new url, signal the semaphore without doing anything
+            dispatch_semaphore_signal(self->_semaphoreOfSequencedURLsArray);
+            //join the serial queue, wait to get image data from dict
+            dispatch_async(self->_arrayOfSerialQueues[[url hash] % self->_numberOfConcurrentQueues], ^{
                 UIImage* uiImageInDict = (UIImage*)self->_dictOfImages[url];
                 if (uiImageInDict) {
                     dispatch_async(dispatch_get_main_queue(), ^{
@@ -119,19 +110,23 @@ static DYImageLoader* _sharedImageLoader;
 }
 
 - (void)loadImageForUIImageView:(UIImageView *)uiImageView withURL:(NSString *)url completion:(void (^)(void))completion {
+    __weak UIImageView* weakUIImageView = uiImageView;
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
-        uiImageView.image = image;
+        __strong UIImageView* strongUIImageView = weakUIImageView;
+        strongUIImageView.image = image;
         completion();
     }];
 }
 
 - (void)loadImageForUIImageViews:(NSArray *)uiImageViews withURL:(NSString *)url {
+    __weak NSArray* weakUIImageViews = uiImageViews;
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            __strong NSArray* strongUIImageViews = weakUIImageViews;
             dispatch_queue_t queue = dispatch_queue_create("com.DYImageLoader", DISPATCH_QUEUE_CONCURRENT);
             //dispatch_apply run very fast :)
             dispatch_apply(uiImageViews.count, queue, ^(size_t index) {
-                UIImageView* uiImageView = (UIImageView*)uiImageViews[index];
+                UIImageView* uiImageView = (UIImageView*)strongUIImageViews[index];
                 dispatch_async(dispatch_get_main_queue(), ^{
                     uiImageView.image = image;
                 });
@@ -140,17 +135,31 @@ static DYImageLoader* _sharedImageLoader;
     }];
 }
 
-- (void)avoidImageCacheOverflow {
+- (void)p_avoidImageCacheOverflow {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         if ([self->_lockOfCheckImageCacheOverflow tryLock]) {
             while (self->_arrayOfSequencedURLs.count > self->_capacityOfImageCache) {
                 [self->_dictOfImages removeObjectForKey:(NSString*)self->_arrayOfSequencedURLs[0]];
-                [self->_dictOfRequestingQueues removeObjectForKey:(NSString*)self->_arrayOfSequencedURLs[0]];
                 [self->_arrayOfSequencedURLs removeObjectAtIndex:0];
             }
             [self->_lockOfCheckImageCacheOverflow unlock];
         }
     });
+}
+
+- (NSString*)description {
+    return [NSString stringWithFormat:@"<%@: %p, %@}>",
+            [self class],
+            self,
+            @{
+              @"requestCount":[NSNumber numberWithInt:_requestCount],
+              @"arrayOfSequencedURLs":_arrayOfSequencedURLs,
+              @"dictOfImages":_dictOfImages
+              }];
+}
+
+- (NSString *)debugDescription {
+    return [self description];
 }
 
 @end

@@ -16,9 +16,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DYImageLoader*)imageLoader;
 
-+ (DYImageLoader*)imageLoaderWithCacheCapacity:(NSUInteger)capacity;
++ (DYImageLoader*)imageLoaderWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number;
 
-- (instancetype)initWithCacheCapacity:(NSUInteger)capacity;
+- (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number;
 
 - (void)loadImageWithURL:(NSString*)url completion:(void (^)(UIImage* _Nullable image))completion;
 
