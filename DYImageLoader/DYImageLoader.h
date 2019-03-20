@@ -5,8 +5,8 @@
 //  Created by Apple on 2019/3/15.
 //  Copyright © 2019 Young. All rights reserved.
 //
-#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 20
-#define DY_DEFAULT_NUMBER_OF_CONCURRENT_REQUESTS 3
+#define DY_DEFAULT_LIMIT_OF_IMAGE_CACHE (20 * 1024 * 1024)
+#define DY_DEFAULT_NUMBER_OF_CONCURRENT_REQUESTS 5
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -21,9 +21,9 @@ typedef void (^DYUIImageViewSettingCompletionHandler)(void);
 
 + (DYImageLoader*)imageLoader;
 
-+ (DYImageLoader*)imageLoaderWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number;
++ (DYImageLoader*)imageLoaderWithCacheLimit:(NSUInteger)limit concurrentRequestsNumber:(NSUInteger)number;
 
-- (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number;
+- (instancetype)initWithCacheLimit:(NSUInteger)limit concurrentRequestsNumber:(NSUInteger)number;
 
 - (void)loadImageWithURL:(NSString*)url completion:(DYUIImageLoadingCompletionHandler)completion;
 

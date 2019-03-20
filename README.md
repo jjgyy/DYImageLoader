@@ -45,9 +45,4 @@ DYImageLoader * imageLoader = DYImageLoader.sharedImageLoader;
 ```
 >调用loadImageWithURL，之后使用dispatch_apply进行并发迭代，为数组中所有UIImageView设置image
 
----
-
-
-## Structure
-![avatar](http://assets.processon.com/chart_image/5c8dbde7e4b0afc744146e15.png)
 
