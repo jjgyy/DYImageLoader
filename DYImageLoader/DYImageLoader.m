@@ -87,7 +87,7 @@ static int _requestCount = 0;
             }
             //thread which isn't the first one try to request a new url, signal the semaphore without doing anything
             dispatch_semaphore_signal(self->_semaphoreAvoidingRepeatingRequests);
-            //join the serial queue, wait to get image data from dict
+            //join the serial queue, wait to get image data from cache
             dispatch_async(self->_arrayOfSerialQueuesPool[[url hash] % self->_numberOfConcurrentQueues], ^{
                 NSData* imageData = [self->_cacheOfImageData objectForKey:url];
                 UIImage* image = [UIImage imageWithData:imageData];
