@@ -5,15 +5,13 @@
 //  Created by Apple on 2019/3/15.
 //  Copyright © 2019 Young. All rights reserved.
 //
-#define DY_DEFAULT_CAPACITY_OF_IMAGE_CACHE 20
-#define DY_DEFAULT_NUMBER_OF_CONCURRENT_REQUESTS 3
 
 #import "DYImageLoader.h"
 
 @interface DYImageLoader()
 @property(nonatomic, assign) NSUInteger capacityOfImageCache;
 @property(nonatomic, assign) NSUInteger numberOfConcurrentQueues;
-@property(nonatomic, strong) NSMutableDictionary* dictOfImages;
+@property(nonatomic, strong) NSMutableDictionary* dictOfImagesCache;
 @property(nonatomic, strong) NSMutableArray* arrayOfSequencedURLs;
 @property(nonatomic, strong) NSMutableDictionary* dictOfQueueIndexToJoin;
 @property(nonatomic, strong) NSArray* arrayOfSerialQueuesPool;
@@ -49,7 +47,7 @@ static int _requestCount = 0;
 - (instancetype)initWithCacheCapacity:(NSUInteger)capacity concurrentRequestsNumber:(NSUInteger)number {
     if (self = [super init]) {
         self->_capacityOfImageCache = capacity;
-        self->_dictOfImages = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
+        self->_dictOfImagesCache = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self->_arrayOfSequencedURLs = [NSMutableArray arrayWithCapacity:capacity + 10];
         self->_dictOfQueueIndexToJoin = [NSMutableDictionary dictionaryWithCapacity:capacity + 10];
         self->_lockOfCheckImageCacheOverflow = [[NSLock alloc] init];
@@ -64,10 +62,10 @@ static int _requestCount = 0;
     return self;
 }
 
-- (void)loadImageWithURL:(NSString *)url completion:(void (^)(UIImage * _Nullable))completion {
+- (void)loadImageWithURL:(NSString *)url completion:(DYUIImageLoadingCompletionHandler)completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         //try to get image cache from dict
-        UIImage* uiImageInDict = (UIImage*)self->_dictOfImages[url];
+        UIImage* uiImageInDict = (UIImage*)self->_dictOfImagesCache[url];
         if (uiImageInDict) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(uiImageInDict);
@@ -88,7 +86,7 @@ static int _requestCount = 0;
                     _requestCount ++;
                     UIImage* uiImageInResponse = [UIImage imageWithData:data];
                     if (!uiImageInResponse) {return;}
-                    self->_dictOfImages[url] = uiImageInResponse;
+                    self->_dictOfImagesCache[url] = uiImageInResponse;
                     dispatch_async(dispatch_get_main_queue(), ^{
                         completion(uiImageInResponse);
                     });
@@ -103,7 +101,7 @@ static int _requestCount = 0;
             //join the serial queue, wait to get image data from dict
             NSUInteger indexOfQueueToJoin = [(NSNumber*)self->_dictOfQueueIndexToJoin[url] integerValue];
             dispatch_async(self->_arrayOfSerialQueuesPool[indexOfQueueToJoin], ^{
-                UIImage* uiImageInDict = (UIImage*)self->_dictOfImages[url];
+                UIImage* uiImageInDict = (UIImage*)self->_dictOfImagesCache[url];
                 if (uiImageInDict) {
                     dispatch_async(dispatch_get_main_queue(), ^{
                         completion(uiImageInDict);
@@ -115,7 +113,7 @@ static int _requestCount = 0;
     });
 }
 
-- (void)loadImageForUIImageView:(UIImageView *)uiImageView withURL:(NSString *)url completion:(void (^)(void))completion {
+- (void)loadImageForUIImageView:(UIImageView *)uiImageView withURL:(NSString *)url completion:(DYUIImageViewSettingCompletionHandler)completion {
     __weak UIImageView* weakUIImageView = uiImageView;
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
         __strong UIImageView* strongUIImageView = weakUIImageView;
@@ -125,16 +123,13 @@ static int _requestCount = 0;
 }
 
 - (void)loadImageForUIImageViews:(NSArray *)uiImageViews withURL:(NSString *)url {
-    __weak NSArray* weakUIImageViews = uiImageViews;
     [self loadImageWithURL:url completion:^(UIImage * _Nullable image) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            __strong NSArray* strongUIImageViews = weakUIImageViews;
             dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
             //dispatch_apply run very fast :)
             dispatch_apply(uiImageViews.count, queue, ^(size_t index) {
-                UIImageView* uiImageView = (UIImageView*)strongUIImageViews[index];
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    uiImageView.image = image;
+                    ((UIImageView*)uiImageViews[index]).image = image;
                 });
             });
         });
@@ -146,8 +141,8 @@ static int _requestCount = 0;
         if ([self->_lockOfCheckImageCacheOverflow tryLock]) {
             while (self->_arrayOfSequencedURLs.count > self->_capacityOfImageCache) {
                 NSString* removedURL = (NSString*)self->_arrayOfSequencedURLs[0];
-                if (self->_dictOfImages[removedURL] && self->_dictOfQueueIndexToJoin[removedURL]) {
-                    [self->_dictOfImages removeObjectForKey:removedURL];
+                if (self->_dictOfImagesCache[removedURL] && self->_dictOfQueueIndexToJoin[removedURL]) {
+                    [self->_dictOfImagesCache removeObjectForKey:removedURL];
                     [self->_dictOfQueueIndexToJoin removeObjectForKey:removedURL];
                     [self->_arrayOfSequencedURLs removeObjectAtIndex:0];
                 }
@@ -165,7 +160,7 @@ static int _requestCount = 0;
               @"requestCount":[NSNumber numberWithInt:_requestCount],
               @"arrayOfSequencedURLs":_arrayOfSequencedURLs,
               @"dictOfQueueIndexToJoin":_dictOfQueueIndexToJoin,
-              @"dictOfImages":_dictOfImages
+              @"dictOfImages":_dictOfImagesCache
               }];
 }
 
